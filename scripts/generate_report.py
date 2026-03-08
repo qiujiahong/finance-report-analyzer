@@ -580,6 +580,407 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
         # Equity multiplier
         equity_multiplier.append(ta_f / eq_f if ta_f and eq_f and eq_f != 0 else None)
 
+    # ========== SVG Chart Generators ==========
+    def svg_bar_line_chart(dates_list, bars_data, line_data, bar_label, line_label,
+                           bar_color="#3b82f6", line_color="#ef4444", title_text="",
+                           width=700, height=320, is_forecast_list=None):
+        """Bar chart with optional line overlay. All pure SVG."""
+        valid_bars = [(i, v) for i, v in enumerate(bars_data) if v is not None]
+        valid_line = [(i, v) for i, v in enumerate(line_data) if v is not None]
+        if not valid_bars:
+            return ""
+        all_vals = [v for _, v in valid_bars] + [v for _, v in valid_line]
+        max_v = max(abs(v) for v in all_vals) if all_vals else 1
+        min_v = min(v for v in all_vals)
+        if min_v >= 0:
+            min_v = 0
+
+        pad_l, pad_r, pad_t, pad_b = 70, 30, 40, 50
+        chart_w = width - pad_l - pad_r
+        chart_h = height - pad_t - pad_b
+        n = len(dates_list)
+        bar_w = min(chart_w / n * 0.6, 50)
+        range_v = max(abs(max(all_vals)), abs(min_v)) if min_v < 0 else max(all_vals)
+        if range_v == 0: range_v = 1
+
+        def y_pos(v):
+            if min_v < 0:
+                zero_y = pad_t + chart_h * (range_v / (2 * range_v))
+                return zero_y - (v / range_v) * (chart_h / 2)
+            else:
+                return pad_t + chart_h - (v / range_v) * chart_h
+
+        zero_y = y_pos(0)
+        svg = f'<svg viewBox="0 0 {width} {height}" style="width:100%;max-width:{width}px;height:auto;margin:12px auto;display:block;">'
+        if title_text:
+            svg += f'<text x="{width/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#1e293b">{title_text}</text>'
+
+        # Y-axis gridlines
+        for j in range(5):
+            gy = pad_t + chart_h * j / 4
+            gv = range_v * (1 - j / 4) if min_v >= 0 else range_v - 2 * range_v * j / 4
+            svg += f'<line x1="{pad_l}" y1="{gy}" x2="{width-pad_r}" y2="{gy}" stroke="#e2e8f0" stroke-width="1"/>'
+            svg += f'<text x="{pad_l-8}" y="{gy+4}" text-anchor="end" font-size="10" fill="#94a3b8">{gv:.0f}</text>'
+
+        # Zero line if needed
+        if min_v < 0:
+            svg += f'<line x1="{pad_l}" y1="{zero_y}" x2="{width-pad_r}" y2="{zero_y}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,2"/>'
+
+        # Bars
+        for idx, (i, v) in enumerate(valid_bars):
+            x = pad_l + (i + 0.5) * chart_w / n - bar_w / 2
+            by = y_pos(v)
+            bh = abs(by - zero_y)
+            top = min(by, zero_y)
+            fc = is_forecast_list[i] if is_forecast_list and i < len(is_forecast_list) else False
+            fill = "#fbbf24" if fc else bar_color
+            opacity = "0.7" if fc else "0.85"
+            svg += f'<rect x="{x}" y="{top}" width="{bar_w}" height="{bh}" fill="{fill}" opacity="{opacity}" rx="2"/>'
+            # Value label
+            label_y = top - 5 if v >= 0 else top + bh + 12
+            svg += f'<text x="{x+bar_w/2}" y="{label_y}" text-anchor="middle" font-size="8" fill="#64748b">{v:.1f}</text>'
+
+        # Line
+        if valid_line:
+            points = []
+            for i, v in valid_line:
+                lx = pad_l + (i + 0.5) * chart_w / n
+                ly = y_pos(v)
+                points.append((lx, ly))
+            polyline = " ".join(f"{x},{y}" for x, y in points)
+            svg += f'<polyline points="{polyline}" fill="none" stroke="{line_color}" stroke-width="2.5"/>'
+            for lx, ly in points:
+                svg += f'<circle cx="{lx}" cy="{ly}" r="3.5" fill="{line_color}" stroke="white" stroke-width="1.5"/>'
+
+        # X-axis labels
+        for i, d in enumerate(dates_list):
+            x = pad_l + (i + 0.5) * chart_w / n
+            fc = is_forecast_list[i] if is_forecast_list and i < len(is_forecast_list) else False
+            suffix = "E" if fc else ""
+            svg += f'<text x="{x}" y="{height-10}" text-anchor="middle" font-size="10" fill="#64748b">{d}{suffix}</text>'
+
+        # Legend
+        lx = pad_l + 10
+        svg += f'<rect x="{lx}" y="{pad_t+5}" width="12" height="12" fill="{bar_color}" rx="2"/>'
+        svg += f'<text x="{lx+16}" y="{pad_t+15}" font-size="10" fill="#475569">{bar_label}</text>'
+        if valid_line:
+            lx2 = lx + len(bar_label) * 11 + 30
+            svg += f'<line x1="{lx2}" y1="{pad_t+11}" x2="{lx2+15}" y2="{pad_t+11}" stroke="{line_color}" stroke-width="2.5"/>'
+            svg += f'<text x="{lx2+20}" y="{pad_t+15}" font-size="10" fill="#475569">{line_label}</text>'
+
+        svg += '</svg>'
+        return svg
+
+    def svg_multi_line_chart(dates_list, series_dict, title_text="", width=700, height=300,
+                             is_forecast_list=None, pct=False):
+        """Multiple line chart. series_dict = {label: (values, color)}"""
+        all_vals = []
+        for label, (vals, color) in series_dict.items():
+            all_vals.extend([v for v in vals if v is not None])
+        if not all_vals:
+            return ""
+        max_v = max(all_vals)
+        min_v = min(all_vals)
+        pad = max_v - min_v
+        if pad == 0: pad = 1
+        max_v += pad * 0.1
+        min_v -= pad * 0.1
+
+        pad_l, pad_r, pad_t, pad_b = 70, 30, 40, 50
+        chart_w = width - pad_l - pad_r
+        chart_h = height - pad_t - pad_b
+        n = len(dates_list)
+
+        def y_pos(v):
+            return pad_t + chart_h * (1 - (v - min_v) / (max_v - min_v))
+
+        svg = f'<svg viewBox="0 0 {width} {height}" style="width:100%;max-width:{width}px;height:auto;margin:12px auto;display:block;">'
+        if title_text:
+            svg += f'<text x="{width/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#1e293b">{title_text}</text>'
+
+        # Gridlines
+        for j in range(5):
+            gy = pad_t + chart_h * j / 4
+            gv = max_v - (max_v - min_v) * j / 4
+            unit = "%" if pct else ""
+            svg += f'<line x1="{pad_l}" y1="{gy}" x2="{width-pad_r}" y2="{gy}" stroke="#e2e8f0" stroke-width="1"/>'
+            svg += f'<text x="{pad_l-8}" y="{gy+4}" text-anchor="end" font-size="10" fill="#94a3b8">{gv:.1f}{unit}</text>'
+
+        # Zero line
+        if min_v < 0 < max_v:
+            zy = y_pos(0)
+            svg += f'<line x1="{pad_l}" y1="{zy}" x2="{width-pad_r}" y2="{zy}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,2"/>'
+
+        # Lines
+        legend_items = []
+        for label, (vals, color) in series_dict.items():
+            points = []
+            for i, v in enumerate(vals):
+                if v is not None:
+                    lx = pad_l + (i + 0.5) * chart_w / n
+                    ly = y_pos(v)
+                    points.append((lx, ly))
+            if points:
+                polyline = " ".join(f"{x},{y}" for x, y in points)
+                svg += f'<polyline points="{polyline}" fill="none" stroke="{color}" stroke-width="2"/>'
+                for lx, ly in points:
+                    svg += f'<circle cx="{lx}" cy="{ly}" r="3" fill="{color}" stroke="white" stroke-width="1"/>'
+                legend_items.append((label, color))
+
+        # X-axis labels
+        for i, d in enumerate(dates_list):
+            x = pad_l + (i + 0.5) * chart_w / n
+            fc = is_forecast_list[i] if is_forecast_list and i < len(is_forecast_list) else False
+            suffix = "E" if fc else ""
+            svg += f'<text x="{x}" y="{height-10}" text-anchor="middle" font-size="10" fill="#64748b">{d}{suffix}</text>'
+
+        # Legend
+        lx = pad_l + 10
+        for j, (label, color) in enumerate(legend_items):
+            lx_pos = lx + j * 120
+            svg += f'<line x1="{lx_pos}" y1="{pad_t+7}" x2="{lx_pos+15}" y2="{pad_t+7}" stroke="{color}" stroke-width="2.5"/>'
+            svg += f'<circle cx="{lx_pos+7}" cy="{pad_t+7}" r="3" fill="{color}"/>'
+            svg += f'<text x="{lx_pos+20}" y="{pad_t+11}" font-size="10" fill="#475569">{label}</text>'
+
+        svg += '</svg>'
+        return svg
+
+    def svg_pie_chart(slices, title_text="", width=400, height=300):
+        """Pie chart. slices = [(label, value, color), ...]"""
+        slices = [(l, v, c) for l, v, c in slices if v and v > 0]
+        if not slices:
+            return ""
+        total = sum(v for _, v, _ in slices)
+        if total == 0:
+            return ""
+
+        cx, cy, r = width / 2 - 40, height / 2 + 10, min(width, height) / 2 - 50
+        svg = f'<svg viewBox="0 0 {width} {height}" style="width:100%;max-width:{width}px;height:auto;margin:12px auto;display:block;">'
+        if title_text:
+            svg += f'<text x="{width/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#1e293b">{title_text}</text>'
+
+        import math
+        angle = -90  # Start from top
+        for i, (label, value, color) in enumerate(slices):
+            pct = value / total
+            sweep = pct * 360
+            start_rad = math.radians(angle)
+            end_rad = math.radians(angle + sweep)
+            x1 = cx + r * math.cos(start_rad)
+            y1 = cy + r * math.sin(start_rad)
+            x2 = cx + r * math.cos(end_rad)
+            y2 = cy + r * math.sin(end_rad)
+            large = 1 if sweep > 180 else 0
+            svg += f'<path d="M{cx},{cy} L{x1},{y1} A{r},{r} 0 {large},1 {x2},{y2} Z" fill="{color}" stroke="white" stroke-width="2"/>'
+            # Label
+            mid_rad = math.radians(angle + sweep / 2)
+            lx = cx + (r * 0.65) * math.cos(mid_rad)
+            ly = cy + (r * 0.65) * math.sin(mid_rad)
+            if pct >= 0.05:
+                svg += f'<text x="{lx}" y="{ly}" text-anchor="middle" font-size="10" fill="white" font-weight="bold">{pct*100:.1f}%</text>'
+            angle += sweep
+
+        # Legend on right
+        for i, (label, value, color) in enumerate(slices):
+            ly = 50 + i * 22
+            lx = width - 120
+            svg += f'<rect x="{lx}" y="{ly}" width="12" height="12" fill="{color}" rx="2"/>'
+            svg += f'<text x="{lx+16}" y="{ly+10}" font-size="10" fill="#475569">{label}</text>'
+
+        svg += '</svg>'
+        return svg
+
+    def svg_stacked_bar_chart(dates_list, series_list, title_text="", width=700, height=320,
+                               is_forecast_list=None):
+        """Stacked bar chart. series_list = [(label, values, color), ...]"""
+        n = len(dates_list)
+        # Calculate totals per bar
+        totals = []
+        for i in range(n):
+            t = sum(abs(to_float(vals[i]) or 0) for _, vals, _ in series_list)
+            totals.append(t)
+        max_t = max(totals) if totals else 1
+        if max_t == 0: max_t = 1
+
+        pad_l, pad_r, pad_t, pad_b = 70, 30, 40, 50
+        chart_w = width - pad_l - pad_r
+        chart_h = height - pad_t - pad_b
+        bar_w = min(chart_w / n * 0.6, 55)
+
+        svg = f'<svg viewBox="0 0 {width} {height}" style="width:100%;max-width:{width}px;height:auto;margin:12px auto;display:block;">'
+        if title_text:
+            svg += f'<text x="{width/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#1e293b">{title_text}</text>'
+
+        # Gridlines
+        for j in range(5):
+            gy = pad_t + chart_h * j / 4
+            gv = max_t * (1 - j / 4)
+            svg += f'<line x1="{pad_l}" y1="{gy}" x2="{width-pad_r}" y2="{gy}" stroke="#e2e8f0" stroke-width="1"/>'
+            svg += f'<text x="{pad_l-8}" y="{gy+4}" text-anchor="end" font-size="10" fill="#94a3b8">{gv:.0f}</text>'
+
+        # Bars
+        for i in range(n):
+            x = pad_l + (i + 0.5) * chart_w / n - bar_w / 2
+            cum_h = 0
+            for label, vals, color in series_list:
+                v = abs(to_float(vals[i]) or 0)
+                bh = v / max_t * chart_h
+                by = pad_t + chart_h - cum_h - bh
+                svg += f'<rect x="{x}" y="{by}" width="{bar_w}" height="{bh}" fill="{color}" opacity="0.85" rx="1"/>'
+                cum_h += bh
+
+        # X-axis
+        for i, d in enumerate(dates_list):
+            x = pad_l + (i + 0.5) * chart_w / n
+            fc = is_forecast_list[i] if is_forecast_list and i < len(is_forecast_list) else False
+            suffix = "E" if fc else ""
+            svg += f'<text x="{x}" y="{height-10}" text-anchor="middle" font-size="10" fill="#64748b">{d}{suffix}</text>'
+
+        # Legend
+        lx = pad_l + 10
+        for j, (label, _, color) in enumerate(series_list):
+            lx_pos = lx + j * 110
+            svg += f'<rect x="{lx_pos}" y="{pad_t+5}" width="12" height="12" fill="{color}" rx="2"/>'
+            svg += f'<text x="{lx_pos+16}" y="{pad_t+15}" font-size="10" fill="#475569">{label}</text>'
+
+        svg += '</svg>'
+        return svg
+
+    def svg_dupont_tree(net_margin_v, turnover_v, multiplier_v, roe_v, year=""):
+        """DuPont analysis tree diagram."""
+        w, h = 700, 280
+        svg = f'<svg viewBox="0 0 {w} {h}" style="width:100%;max-width:{w}px;height:auto;margin:12px auto;display:block;">'
+        if year:
+            svg += f'<text x="{w/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#1e293b">杜邦分析图 ({year})</text>'
+
+        # ROE box (top center)
+        svg += '<rect x="250" y="35" width="200" height="45" rx="8" fill="#1e40af" stroke="#1e3a8a" stroke-width="1.5"/>'
+        svg += f'<text x="350" y="53" text-anchor="middle" font-size="11" fill="white">ROE (净资产收益率)</text>'
+        svg += f'<text x="350" y="71" text-anchor="middle" font-size="16" fill="white" font-weight="bold">{roe_v:.2f}%</text>'
+
+        # Connector lines
+        svg += '<line x1="350" y1="80" x2="350" y2="100" stroke="#94a3b8" stroke-width="1.5"/>'
+        svg += '<line x1="120" y1="100" x2="580" y2="100" stroke="#94a3b8" stroke-width="1.5"/>'
+        svg += '<line x1="120" y1="100" x2="120" y2="120" stroke="#94a3b8" stroke-width="1.5"/>'
+        svg += '<line x1="350" y1="100" x2="350" y2="120" stroke="#94a3b8" stroke-width="1.5"/>'
+        svg += '<line x1="580" y1="100" x2="580" y2="120" stroke="#94a3b8" stroke-width="1.5"/>'
+
+        # Multiply signs
+        svg += '<text x="235" y="97" text-anchor="middle" font-size="14" fill="#64748b">x</text>'
+        svg += '<text x="465" y="97" text-anchor="middle" font-size="14" fill="#64748b">x</text>'
+
+        # Net Margin box
+        svg += '<rect x="30" y="120" width="180" height="45" rx="8" fill="#059669" stroke="#047857" stroke-width="1.5"/>'
+        svg += f'<text x="120" y="138" text-anchor="middle" font-size="11" fill="white">净利率</text>'
+        svg += f'<text x="120" y="156" text-anchor="middle" font-size="15" fill="white" font-weight="bold">{net_margin_v:.2f}%</text>'
+
+        # Asset Turnover box
+        svg += '<rect x="260" y="120" width="180" height="45" rx="8" fill="#d97706" stroke="#b45309" stroke-width="1.5"/>'
+        svg += f'<text x="350" y="138" text-anchor="middle" font-size="11" fill="white">资产周转率</text>'
+        svg += f'<text x="350" y="156" text-anchor="middle" font-size="15" fill="white" font-weight="bold">{turnover_v:.4f}倍</text>'
+
+        # Equity Multiplier box
+        svg += '<rect x="490" y="120" width="180" height="45" rx="8" fill="#7c3aed" stroke="#6d28d9" stroke-width="1.5"/>'
+        svg += f'<text x="580" y="138" text-anchor="middle" font-size="11" fill="white">权益乘数</text>'
+        svg += f'<text x="580" y="156" text-anchor="middle" font-size="15" fill="white" font-weight="bold">{multiplier_v:.2f}倍</text>'
+
+        # Sub-explanations
+        svg += '<line x1="120" y1="165" x2="120" y2="190" stroke="#94a3b8" stroke-width="1"/>'
+        svg += '<rect x="30" y="190" width="180" height="35" rx="6" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>'
+        svg += f'<text x="120" y="212" text-anchor="middle" font-size="10" fill="#166534">净利润 / 营业收入</text>'
+
+        svg += '<line x1="350" y1="165" x2="350" y2="190" stroke="#94a3b8" stroke-width="1"/>'
+        svg += '<rect x="260" y="190" width="180" height="35" rx="6" fill="#fffbeb" stroke="#fde68a" stroke-width="1"/>'
+        svg += f'<text x="350" y="212" text-anchor="middle" font-size="10" fill="#92400e">营业收入 / 总资产</text>'
+
+        svg += '<line x1="580" y1="165" x2="580" y2="190" stroke="#94a3b8" stroke-width="1"/>'
+        svg += '<rect x="490" y="190" width="180" height="35" rx="6" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1"/>'
+        svg += f'<text x="580" y="212" text-anchor="middle" font-size="10" fill="#5b21b6">总资产 / 股东权益</text>'
+
+        # Formula at bottom
+        svg += f'<text x="{w/2}" y="260" text-anchor="middle" font-size="11" fill="#64748b">ROE = {net_margin_v:.2f}% x {turnover_v:.4f} x {multiplier_v:.2f} = {net_margin_v * turnover_v * multiplier_v / 100:.2f}%</text>'
+
+        svg += '</svg>'
+        return svg
+
+    # ========== Generate Charts ==========
+    rev_floats = [to_float(v) for v in revenue]
+    np_floats = [to_float(v) for v in net_profit_parent]
+    gm_floats = [to_float(v) for v in gross_margin]
+    nm_floats = [to_float(v) for v in net_margin]
+    roe_floats = [to_float(v) for v in roe]
+    roa_floats = [to_float(v) for v in roa]
+    ocf_floats = [to_float(v) for v in ocf]
+    icf_floats = [to_float(v) for v in icf]
+    fcf_fin_floats = [to_float(v) for v in fcf_finance]
+    rd_floats = [to_float(v) for v in rd]
+    ta_floats = [to_float(v) for v in total_assets]
+    tl_floats = [to_float(v) for v in total_liab]
+    eq_floats = [to_float(v) for v in equity]
+    ca_floats = [to_float(v) for v in current_assets]
+
+    # Chart 1: Revenue & Net Profit bar+line
+    chart_rev_np = svg_bar_line_chart(dates, rev_floats, np_floats,
+        "营业收入(亿元)", "归母净利润(亿元)", "#3b82f6", "#ef4444",
+        "营收与净利润趋势", is_forecast_list=is_forecast)
+
+    # Chart 2: Profitability margins multi-line
+    chart_margins = svg_multi_line_chart(dates, {
+        "毛利率": (gm_floats, "#10b981"),
+        "净利率": (nm_floats, "#ef4444"),
+        "ROE": (roe_floats, "#6366f1"),
+        "ROA": (roa_floats, "#f59e0b"),
+    }, "盈利能力指标趋势(%)", is_forecast_list=is_forecast, pct=True)
+
+    # Chart 3: Cash flow bar chart
+    chart_cf = svg_bar_line_chart(dates, ocf_floats, fcf,
+        "经营性现金流(亿元)", "自由现金流(亿元)", "#10b981", "#7c3aed",
+        "现金流趋势", is_forecast_list=is_forecast)
+
+    # Chart 4: Asset structure pie (latest actual year)
+    latest_actual = None
+    for i in range(len(dates)-1, -1, -1):
+        if not is_forecast[i] and ca_floats[i] is not None:
+            latest_actual = i
+            break
+    chart_asset_pie = ""
+    if latest_actual is not None:
+        nca = (ta_floats[latest_actual] or 0) - (ca_floats[latest_actual] or 0)
+        chart_asset_pie = svg_pie_chart([
+            ("流动资产", ca_floats[latest_actual], "#3b82f6"),
+            ("非流动资产", nca, "#8b5cf6"),
+        ], f"资产结构 ({dates[latest_actual]}年)")
+
+    # Chart 4b: Liability structure pie
+    chart_liab_pie = ""
+    if latest_actual is not None and tl_floats[latest_actual] and eq_floats[latest_actual]:
+        chart_liab_pie = svg_pie_chart([
+            ("负债", tl_floats[latest_actual], "#ef4444"),
+            ("股东权益", eq_floats[latest_actual], "#10b981"),
+        ], f"资本结构 ({dates[latest_actual]}年)")
+
+    # Chart 5: R&D intensity + revenue growth
+    chart_growth = svg_multi_line_chart(dates, {
+        "营收增速": (rev_growth, "#3b82f6"),
+        "研发强度": (rd_intensity, "#ef4444"),
+    }, "增速与研发强度趋势(%)", is_forecast_list=is_forecast, pct=True)
+
+    # Chart 6: Asset structure stacked bar
+    chart_asset_stack = svg_stacked_bar_chart(dates, [
+        ("股东权益", eq_floats, "#10b981"),
+        ("负债", tl_floats, "#ef4444"),
+    ], "资产负债结构(亿元)", is_forecast_list=is_forecast)
+
+    # Chart 7: DuPont tree (latest actual year)
+    chart_dupont = ""
+    if latest_actual is not None:
+        la = latest_actual
+        nm_v = np_floats[la] / rev_floats[la] * 100 if np_floats[la] is not None and rev_floats[la] else 0
+        at_v = to_float(asset_turnover[la]) or (rev_floats[la] / ta_floats[la] if rev_floats[la] and ta_floats[la] else 0)
+        em_v = equity_multiplier[la] or 1
+        roe_v = roe_floats[la] or 0
+        chart_dupont = svg_dupont_tree(nm_v, at_v, em_v, roe_v, dates[la])
+
     title = f"{company} [{ticker}]" if ticker else company or "财务分析报告"
 
     def table_header():
@@ -698,6 +1099,7 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
 {table_row("人均营收(万元)", rev_per_emp)}
 {table_row("人均净利润(万元)", np_per_emp)}
 </table>
+{chart_growth}
 {'<div class="analysis-box">' + growth_text + '</div>' if growth_text else ''}
 <h3>杜邦分析（ROE拆解）</h3>
 <table>
@@ -707,6 +1109,7 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
 {table_row("权益乘数(倍)", equity_multiplier)}
 {table_row("ROE(摊薄)", roe, True)}
 </table>
+{chart_dupont}
 {'<div class="analysis-box">' + dupont_text + '</div>' if dupont_text else ''}
 {'<div class="analysis-box">' + rd_text + '</div>' if rd_text else ''}
 </div>
@@ -867,6 +1270,8 @@ td:first-child, th:first-child {{ text-align:left; font-weight:600; color:#1e293
 {table_row("ROE(摊薄)", roe, True)}
 {table_row("ROA", roa, True)}
 </table>
+{chart_rev_np}
+{chart_margins}
 <div class="analysis-box">{profit_text}</div>
 </div>
 
@@ -880,6 +1285,16 @@ td:first-child, th:first-child {{ text-align:left; font-weight:600; color:#1e293
 {table_row("股东权益", equity)}
 {table_row("资产负债率", debt_ratio, True)}
 </table>
+{chart_asset_stack}
+<div style="overflow:hidden;">
+<div style="float:left;width:48%;">
+{chart_asset_pie}
+</div>
+<div style="float:right;width:48%;">
+{chart_liab_pie}
+</div>
+<div style="clear:both;"></div>
+</div>
 <div class="analysis-box">{bs_text}</div>
 </div>
 
@@ -894,6 +1309,7 @@ td:first-child, th:first-child {{ text-align:left; font-weight:600; color:#1e293
 {table_row("自由现金流(OCF-CapEx)", fcf)}
 {table_row("期末现金余额", cash_end)}
 </table>
+{chart_cf}
 <div class="analysis-box">{cf_text}</div>
 </div>
 
