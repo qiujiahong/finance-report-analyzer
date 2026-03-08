@@ -7,15 +7,28 @@ description: |
 
 # Finance Report Analyzer
 
-Generate financial analysis reports from uploaded Excel/PDF files with LLM-powered analysis, web search for news, and inline SVG sparkline trend charts.
+Generate financial analysis reports from uploaded Excel/PDF files with LLM-powered analysis, competitor analysis, web search for news, and inline SVG sparkline trend charts.
 
 ## Architecture
 
 The tool works in a **hybrid pipeline**:
 
 1. **Python script** → Extract data, build tables/charts, render HTML/PDF (deterministic, zero-cost)
-2. **LLM (OpenClaw agent)** → Write in-depth analysis text for each section + news summary (intelligent, contextual)
+2. **LLM (OpenClaw agent)** → Write in-depth analysis for each section + competitor analysis + news summary
 3. **Web search** → Fetch recent company news and hot topics
+
+## Report Sections
+
+| # | Section | Source |
+|---|---------|--------|
+| 一 | 盈利能力分析 | Script(tables) + LLM(analysis) |
+| 二 | 资产负债分析 | Script(tables) + LLM(analysis) |
+| 三 | 现金流分析 | Script(tables) + LLM(analysis) |
+| 四 | 每股指标与效率 | Script(tables) + LLM(analysis) |
+| 五 | 行业分析 | LLM |
+| 六 | 关键竞争对手分析 | LLM(competitor) |
+| 七 | 风险与机遇分析 | LLM |
+| 八 | 近期热点新闻 | Web search + LLM |
 
 ## Workflow (OpenClaw Agent)
 
@@ -47,17 +60,18 @@ python3 scripts/generate_report.py /tmp/data.xlsx --company "公司名" --ticker
 
 This outputs structured JSON with all financial metrics organized by category.
 
-### Step 3: Web Search for Company News
+### Step 3: Web Search for Company News & Competitors
 
 ```
 web_search("{company} {year} 最新新闻 业绩 研发 重大事件")
+web_search("{company} 竞争对手 市场份额 行业对比")
 ```
 
 Summarize 5-8 key news items as HTML list. Save to `/tmp/reports/news.html`.
 
 ### Step 4: LLM Analysis
 
-Based on the JSON data from Step 2, write professional analysis for 6 sections. Save as JSON to `/tmp/reports/analysis.json`:
+Based on the JSON data from Step 2 and search results from Step 3, write professional analysis for **7 sections**. Save as JSON to `/tmp/reports/analysis.json`:
 
 ```json
 {
@@ -66,6 +80,7 @@ Based on the JSON data from Step 2, write professional analysis for 6 sections. 
   "cash_flow": "HTML text - operating CF trends, capex, FCF, cash reserves...",
   "per_share": "HTML text - EPS/BPS trends, efficiency ratios, workforce...",
   "industry": "HTML text wrapped in <div class=\"analysis-box\">...",
+  "competitor": "HTML text - competitor table + strategic analysis (see format below)",
   "risk": "HTML text using <div class=\"two-col\"><div class=\"col\">... layout"
 }
 ```
@@ -77,6 +92,16 @@ Based on the JSON data from Step 2, write professional analysis for 6 sections. 
 - Compare year-over-year trends
 - Highlight inflection points and turning points
 - For risk section, use the two-column float layout with `.risk-list`
+
+**Competitor section format:**
+```html
+<div class="analysis-box"><strong>Summary of competitive landscape</strong></div>
+<table>
+<tr><th style="text-align:left">竞争对手</th><th style="text-align:left">核心竞品</th><th style="text-align:left">竞争领域</th><th style="text-align:left">威胁程度</th></tr>
+<tr><td style="text-align:left">Company A</td><td style="text-align:left">Product</td><td style="text-align:left">Domain</td><td style="text-align:left; color:#dc2626">直接竞争</td></tr>
+</table>
+<div class="analysis-box">Detailed competitive analysis...</div>
+```
 
 ### Step 5: Generate Final Report
 
@@ -109,7 +134,7 @@ curl -s -X POST 'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type
 # JSON data export (for LLM pipeline)
 python3 scripts/generate_report.py input.xlsx --json --company NAME --ticker TICKER --output-dir DIR
 
-# Full report with LLM analysis
+# Full report with LLM analysis + competitor + news
 python3 scripts/generate_report.py input.xlsx \
   --analysis-json analysis.json \
   --news-html news.html \
@@ -132,6 +157,7 @@ python3 scripts/generate_report.py input.xlsx --company NAME --ticker TICKER -o 
 ## Report Features
 
 - **LLM-powered analysis**: Deep, contextual financial commentary (when using --analysis-json)
+- **Competitor analysis**: Key competitors table + strategic competitive assessment
 - **Company news section**: Recent hot topics and events (when using --news-html)
 - **Sparkline trend charts**: SVG mini-charts in each data row
 - **Forecast markers**: Predicted values with ⟡ symbol and yellow background
