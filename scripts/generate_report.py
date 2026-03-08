@@ -1055,6 +1055,7 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
         growth_text = llm.get("growth", "")
         rd_text = llm.get("rd_analysis", "")
         dupont_text = llm.get("dupont", "")
+        investment_html = llm.get("investment", "")
     else:
         profit_text = analyze_profitability(dates, is_forecast, revenue, op_profit, net_profit_parent, rd, gross_margin, net_margin, roe, roa)
         bs_text = analyze_balance_sheet(dates, is_forecast, total_assets, total_liab, equity, current_assets, debt_ratio)
@@ -1066,6 +1067,7 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
         growth_text = ""
         rd_text = ""
         dupont_text = ""
+        investment_html = ""
 
     # News section
     news_section = ""
@@ -1074,6 +1076,19 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
 <div class="card">
 <div class="section-title">九、近期热点新闻</div>
 {news_html}
+</div>
+"""
+
+    # Investment recommendation section
+    investment_section = ""
+    if investment_html:
+        investment_section = f"""
+<div class="card">
+<div class="section-title">十、投资建议</div>
+{investment_html}
+<div style="margin-top:16px;padding:12px;background:#fef3c7;border-left:4px solid #f59e0b;font-size:12px;color:#92400e;">
+<strong>免责声明：</strong>本报告仅供参考，不构成任何投资建议。投资者应基于自身判断做出投资决策，并自行承担投资风险。过往业绩不代表未来表现。
+</div>
 </div>
 """
 
@@ -1340,6 +1355,8 @@ td:first-child, th:first-child {{ text-align:left; font-weight:600; color:#1e293
 </div>
 
 {news_section}
+
+{investment_section}
 
 <div class="footer">
 数据来源：公司财务报告 | 仅供参考，不构成投资建议
