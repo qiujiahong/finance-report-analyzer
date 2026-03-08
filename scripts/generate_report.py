@@ -611,7 +611,7 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
                 return pad_t + chart_h - (v / range_v) * chart_h
 
         zero_y = y_pos(0)
-        svg = f'<svg viewBox="0 0 {width} {height}" style="width:100%;max-width:{width}px;height:auto;margin:12px auto;display:block;">'
+        svg = f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" style="display:block;margin:12px auto;">'
         if title_text:
             svg += f'<text x="{width/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#1e293b">{title_text}</text>'
 
@@ -694,7 +694,7 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
         def y_pos(v):
             return pad_t + chart_h * (1 - (v - min_v) / (max_v - min_v))
 
-        svg = f'<svg viewBox="0 0 {width} {height}" style="width:100%;max-width:{width}px;height:auto;margin:12px auto;display:block;">'
+        svg = f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" style="display:block;margin:12px auto;">'
         if title_text:
             svg += f'<text x="{width/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#1e293b">{title_text}</text>'
 
@@ -755,7 +755,7 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
             return ""
 
         cx, cy, r = width / 2 - 40, height / 2 + 10, min(width, height) / 2 - 50
-        svg = f'<svg viewBox="0 0 {width} {height}" style="width:100%;max-width:{width}px;height:auto;margin:12px auto;display:block;">'
+        svg = f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" style="display:block;margin:12px auto;">'
         if title_text:
             svg += f'<text x="{width/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#1e293b">{title_text}</text>'
 
@@ -807,7 +807,7 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
         chart_h = height - pad_t - pad_b
         bar_w = min(chart_w / n * 0.6, 55)
 
-        svg = f'<svg viewBox="0 0 {width} {height}" style="width:100%;max-width:{width}px;height:auto;margin:12px auto;display:block;">'
+        svg = f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" style="display:block;margin:12px auto;">'
         if title_text:
             svg += f'<text x="{width/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#1e293b">{title_text}</text>'
 
@@ -849,7 +849,7 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
     def svg_dupont_tree(net_margin_v, turnover_v, multiplier_v, roe_v, year=""):
         """DuPont analysis tree diagram."""
         w, h = 700, 280
-        svg = f'<svg viewBox="0 0 {w} {h}" style="width:100%;max-width:{w}px;height:auto;margin:12px auto;display:block;">'
+        svg = f'<svg viewBox="0 0 {w} {h}" width="{w}" height="{h}" style="display:block;margin:12px auto;">'
         if year:
             svg += f'<text x="{w/2}" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="#1e293b">杜邦分析图 ({year})</text>'
 
