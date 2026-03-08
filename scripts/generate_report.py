@@ -706,7 +706,7 @@ def html_to_markdown(html_path, md_path):
 def main():
     parser = argparse.ArgumentParser(description="Generate financial analysis report")
     parser.add_argument("input", help="Input Excel file path")
-    parser.add_argument("-o", "--output-format", default="pdf", choices=["pdf", "doc", "md", "html"])
+    parser.add_argument("-o", "--output-format", default="html,pdf", help="Comma-separated formats: html,pdf,doc,md (default: html,pdf)")
     parser.add_argument("--output-dir", default=".", help="Output directory")
     parser.add_argument("--company", default="", help="Company name")
     parser.add_argument("--ticker", default="", help="Stock ticker")
@@ -724,16 +724,20 @@ def main():
         f.write(html)
     print(f"✅ HTML report: {html_path} ({len(html):,} bytes)")
 
-    if args.output_format != "html":
-        ext_map = {"pdf": "pdf", "doc": "docx", "md": "md"}
-        converter = {"pdf": html_to_pdf, "doc": html_to_docx, "md": html_to_markdown}.get(args.output_format)
-        if converter:
-            ext = ext_map[args.output_format]
+    formats = [f.strip().lower() for f in args.output_format.split(",")]
+    converters = {"pdf": (html_to_pdf, "pdf"), "doc": (html_to_docx, "docx"), "md": (html_to_markdown, "md")}
+    for fmt_name in formats:
+        if fmt_name == "html":
+            continue
+        if fmt_name in converters:
+            converter, ext = converters[fmt_name]
             out_path = os.path.join(args.output_dir, f"{base_name}_report.{ext}")
             if converter(html_path, out_path):
                 print(f"✅ {ext.upper()} report: {out_path}")
             else:
                 print(f"⚠️  {ext.upper()} conversion failed. HTML report available at: {html_path}")
+        else:
+            print(f"⚠️  Unknown format: {fmt_name}")
 
 
 if __name__ == "__main__":
