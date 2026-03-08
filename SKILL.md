@@ -64,9 +64,25 @@ Search for industry benchmarks:
 web_search("{company} 行业对比 市场份额 {year}")
 ```
 
-### Step 4: Deliver
+### Step 4: Deliver File via Feishu API
 
-Send HTML (and PDF/DOCX if generated) via message tool to user's chat.
+The `message` tool may send paths as text. Use direct Feishu API to send real file messages:
+
+```bash
+# 1. Upload file to get file_key
+UPLOAD=$(curl -s -X POST 'https://open.feishu.cn/open-apis/im/v1/files' \
+  -H "Authorization: Bearer $TOKEN" \
+  -F 'file_type=stream' \
+  -F "file_name=report.html" \
+  -F "file=@/path/to/report.html")
+FILE_KEY=$(echo "$UPLOAD" | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['file_key'])")
+
+# 2. Send file message to chat
+curl -s -X POST 'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"receive_id\":\"CHAT_ID\",\"msg_type\":\"file\",\"content\":\"{\\\"file_key\\\":\\\"$FILE_KEY\\\"}\"}"
+```
 
 ## Report Features
 
