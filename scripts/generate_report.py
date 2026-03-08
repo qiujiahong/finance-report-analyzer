@@ -405,7 +405,68 @@ def generate_risk_analysis(dates, is_forecast, net_profit, debt_ratio, ocf, cash
     return html
 
 
-def generate_html(rows, header_row, indices, report_types, company="", ticker=""):
+def export_data_json(rows, header_row, indices, report_types, company="", ticker=""):
+    """Export structured financial data as JSON for LLM analysis."""
+    import json as _json
+
+    dates = []
+    for i in indices:
+        h = str(header_row[i]) if i < len(header_row) and header_row[i] else ""
+        dates.append(h[:4] if len(h) >= 4 else h)
+
+    is_forecast = ["盈利预测" in report_types[i] if i < len(report_types) else False for i in indices]
+
+    def get(keywords):
+        label = find_row_label(rows, keywords)
+        return get_values(rows, label, indices) if label else [None] * len(indices)
+
+    def series(keywords):
+        vals = get(keywords)
+        return {dates[i]: {"value": to_float(vals[i]), "forecast": is_forecast[i]} for i in range(len(dates))}
+
+    data = {
+        "company": company,
+        "ticker": ticker,
+        "periods": [{"year": dates[i], "forecast": is_forecast[i]} for i in range(len(dates))],
+        "income": {
+            "revenue": series(["营业总收入", "营业收入"]),
+            "operating_profit": series(["营业利润"]),
+            "net_profit_parent": series(["归属母公司股东的净利润", "归母净利润"]),
+            "net_profit": series(["净利润"]),
+            "rd_expense": series(["研发支出", "研发费用"]),
+            "ebitda": series(["EBITDA"]),
+        },
+        "margins": {
+            "gross_margin": series(["销售毛利率", "毛利率"]),
+            "net_margin": series(["销售净利率", "净利率"]),
+            "roe": series(["ROE(摊薄)", "ROE"]),
+            "roa": series(["ROA"]),
+        },
+        "balance_sheet": {
+            "total_assets": series(["资产总计", "总资产"]),
+            "total_liabilities": series(["负债合计", "总负债"]),
+            "equity": series(["归属母公司股东的权益", "股东权益"]),
+            "current_assets": series(["流动资产"]),
+            "debt_ratio": series(["资产负债率"]),
+        },
+        "cash_flow": {
+            "operating_cf": series(["经营活动现金净流量", "经营活动现金流"]),
+            "investing_cf": series(["投资活动现金净流量"]),
+            "financing_cf": series(["筹资活动现金净流量"]),
+            "cash_end": series(["期末现金余额"]),
+            "capex": series(["购建固定无形长期资产支付的现金", "资本开支"]),
+        },
+        "per_share": {
+            "eps": series(["EPS(基本)", "EPS"]),
+            "bps": series(["每股净资产", "BPS"]),
+            "asset_turnover": series(["资产周转率"]),
+            "employees": series(["员工总数"]),
+        },
+    }
+    return _json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def generate_html(rows, header_row, indices, report_types, company="", ticker="", analysis_json=None, news_html=None):
     dates = []
     for i in indices:
         h = str(header_row[i]) if i < len(header_row) and header_row[i] else ""
@@ -504,13 +565,36 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
     roe_prev = to_float(roe[prev])
     roe_yoy = f"{roe_last - roe_prev:+.1f}pp" if roe_last is not None and roe_prev is not None else "-"
 
-    # Text analyses
-    profit_text = analyze_profitability(dates, is_forecast, revenue, op_profit, net_profit_parent, rd, gross_margin, net_margin, roe, roa)
-    bs_text = analyze_balance_sheet(dates, is_forecast, total_assets, total_liab, equity, current_assets, debt_ratio)
-    cf_text = analyze_cash_flow(dates, is_forecast, ocf, icf, fcf_finance, cash_end, capex)
-    ps_text = analyze_per_share(dates, is_forecast, eps, bps, asset_turnover, employees, revenue)
-    industry_html = generate_industry_analysis(company, revenue, net_profit_parent, gross_margin, rd, dates, is_forecast)
-    risk_html = generate_risk_analysis(dates, is_forecast, net_profit_parent, debt_ratio, ocf, cash_end, revenue, gross_margin)
+    # Text analyses: use LLM-provided text if available, fallback to rule-based
+    if analysis_json:
+        import json as _json
+        try:
+            llm = _json.loads(analysis_json) if isinstance(analysis_json, str) else analysis_json
+        except:
+            llm = {}
+        profit_text = llm.get("profitability", "") or analyze_profitability(dates, is_forecast, revenue, op_profit, net_profit_parent, rd, gross_margin, net_margin, roe, roa)
+        bs_text = llm.get("balance_sheet", "") or analyze_balance_sheet(dates, is_forecast, total_assets, total_liab, equity, current_assets, debt_ratio)
+        cf_text = llm.get("cash_flow", "") or analyze_cash_flow(dates, is_forecast, ocf, icf, fcf_finance, cash_end, capex)
+        ps_text = llm.get("per_share", "") or analyze_per_share(dates, is_forecast, eps, bps, asset_turnover, employees, revenue)
+        industry_html = llm.get("industry", "") or generate_industry_analysis(company, revenue, net_profit_parent, gross_margin, rd, dates, is_forecast)
+        risk_html = llm.get("risk", "") or generate_risk_analysis(dates, is_forecast, net_profit_parent, debt_ratio, ocf, cash_end, revenue, gross_margin)
+    else:
+        profit_text = analyze_profitability(dates, is_forecast, revenue, op_profit, net_profit_parent, rd, gross_margin, net_margin, roe, roa)
+        bs_text = analyze_balance_sheet(dates, is_forecast, total_assets, total_liab, equity, current_assets, debt_ratio)
+        cf_text = analyze_cash_flow(dates, is_forecast, ocf, icf, fcf_finance, cash_end, capex)
+        ps_text = analyze_per_share(dates, is_forecast, eps, bps, asset_turnover, employees, revenue)
+        industry_html = generate_industry_analysis(company, revenue, net_profit_parent, gross_margin, rd, dates, is_forecast)
+        risk_html = generate_risk_analysis(dates, is_forecast, net_profit_parent, debt_ratio, ocf, cash_end, revenue, gross_margin)
+
+    # News section
+    news_section = ""
+    if news_html:
+        news_section = f"""
+<div class="card">
+<div class="section-title">七、近期热点新闻</div>
+{news_html}
+</div>
+"""
 
 
     # wkhtmltopdf uses old WebKit: NO flex, NO CSS variables, NO gradient, NO emoji
@@ -719,6 +803,8 @@ td:first-child, th:first-child {{ text-align:left; font-weight:600; color:#1e293
 {risk_html}
 </div>
 
+{news_section}
+
 <div class="footer">
 数据来源：公司财务报告 | 仅供参考，不构成投资建议
 </div>
@@ -786,6 +872,9 @@ def main():
     parser.add_argument("--output-dir", default=".", help="Output directory")
     parser.add_argument("--company", default="", help="Company name")
     parser.add_argument("--ticker", default="", help="Stock ticker")
+    parser.add_argument("--json", action="store_true", help="Output structured data as JSON (for LLM analysis)")
+    parser.add_argument("--analysis-json", default=None, help="Path to JSON file with LLM-generated analysis texts")
+    parser.add_argument("--news-html", default=None, help="Path to file with news HTML content")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -793,7 +882,29 @@ def main():
 
     rows, header_row = parse_excel(args.input)
     indices, report_types = identify_periods(rows)
-    html = generate_html(rows, header_row, indices, report_types, args.company, args.ticker)
+
+    # JSON export mode: output data for LLM analysis
+    if args.json:
+        data_json = export_data_json(rows, header_row, indices, report_types, args.company, args.ticker)
+        json_path = os.path.join(args.output_dir, f"{base_name}_data.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            f.write(data_json)
+        print(data_json)
+        return
+
+    # Load LLM analysis if provided
+    analysis_json = None
+    if args.analysis_json:
+        with open(args.analysis_json, "r", encoding="utf-8") as f:
+            analysis_json = f.read()
+
+    # Load news HTML if provided
+    news_html = None
+    if args.news_html:
+        with open(args.news_html, "r", encoding="utf-8") as f:
+            news_html = f.read()
+
+    html = generate_html(rows, header_row, indices, report_types, args.company, args.ticker, analysis_json, news_html)
 
     html_path = os.path.join(args.output_dir, f"{base_name}_report.html")
     with open(html_path, "w", encoding="utf-8") as f:

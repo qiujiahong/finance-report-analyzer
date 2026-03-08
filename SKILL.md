@@ -7,26 +7,17 @@ description: |
 
 # Finance Report Analyzer
 
-Generate financial analysis reports from uploaded Excel/PDF files with inline SVG sparkline trend charts and multi-format output.
+Generate financial analysis reports from uploaded Excel/PDF files with LLM-powered analysis, web search for news, and inline SVG sparkline trend charts.
 
-## Quick Start
+## Architecture
 
-```bash
-python3 scripts/generate_report.py input.xlsx -o pdf --company "公司名" --ticker "000001.SZ"
-```
+The tool works in a **hybrid pipeline**:
 
-## Output Formats
+1. **Python script** → Extract data, build tables/charts, render HTML/PDF (deterministic, zero-cost)
+2. **LLM (OpenClaw agent)** → Write in-depth analysis text for each section + news summary (intelligent, contextual)
+3. **Web search** → Fetch recent company news and hot topics
 
-`-o` flag controls output. **HTML is always generated** as the base; other formats convert from HTML.
-
-| Flag | Output | Requires |
-|------|--------|----------|
-| `-o html` | HTML only | (built-in) |
-| `-o pdf` | HTML + PDF (default) | wkhtmltopdf or chromium |
-| `-o doc` | HTML + DOCX | pandoc |
-| `-o md` | HTML + Markdown | pandoc or markdownify |
-
-## Workflow
+## Workflow (OpenClaw Agent)
 
 ### Step 1: Acquire Data File
 
@@ -44,54 +35,105 @@ Try in order:
    curl -s "https://open.feishu.cn/open-apis/im/v1/messages/{message_id}/resources/{file_key}?type=file" \
      -H "Authorization: Bearer $TOKEN" -o /tmp/data.xlsx
    ```
-   Get app credentials: read `channels.feishu.appId`/`appSecret` from openclaw.json.
 
 2. **Feishu Doc/Bitable link** — Use feishu_doc/feishu_bitable tools
 3. **Local file** — Use directly
-4. **Pasted text** — Parse and save as xlsx
 
-### Step 2: Generate Report
-
-```bash
-python3 scripts/generate_report.py /tmp/data.xlsx -o pdf \
-  --company "百济神州-U" --ticker "688235.SH" --output-dir /tmp/reports
-```
-
-### Step 3: Web Search Enhancement (Optional)
-
-Search for industry benchmarks:
-```
-web_search("{company} 行业对比 市场份额 {year}")
-```
-
-### Step 4: Deliver File via Feishu API
-
-The `message` tool may send paths as text. Use direct Feishu API to send real file messages:
+### Step 2: Extract Financial Data (JSON)
 
 ```bash
-# 1. Upload file to get file_key
-UPLOAD=$(curl -s -X POST 'https://open.feishu.cn/open-apis/im/v1/files' \
+python3 scripts/generate_report.py /tmp/data.xlsx --company "公司名" --ticker "000001.SZ" --output-dir /tmp/reports --json
+```
+
+This outputs structured JSON with all financial metrics organized by category.
+
+### Step 3: Web Search for Company News
+
+```
+web_search("{company} {year} 最新新闻 业绩 研发 重大事件")
+```
+
+Summarize 5-8 key news items as HTML list. Save to `/tmp/reports/news.html`.
+
+### Step 4: LLM Analysis
+
+Based on the JSON data from Step 2, write professional analysis for 6 sections. Save as JSON to `/tmp/reports/analysis.json`:
+
+```json
+{
+  "profitability": "HTML text - revenue trends, margins, profitability inflection points...",
+  "balance_sheet": "HTML text - asset structure, leverage, liquidity...",
+  "cash_flow": "HTML text - operating CF trends, capex, FCF, cash reserves...",
+  "per_share": "HTML text - EPS/BPS trends, efficiency ratios, workforce...",
+  "industry": "HTML text wrapped in <div class=\"analysis-box\">...",
+  "risk": "HTML text using <div class=\"two-col\"><div class=\"col\">... layout"
+}
+```
+
+**Analysis guidelines:**
+- Use `<strong>` for key conclusions as the opening line
+- Use `<br><br>` for paragraph breaks
+- Reference specific numbers from the data
+- Compare year-over-year trends
+- Highlight inflection points and turning points
+- For risk section, use the two-column float layout with `.risk-list`
+
+### Step 5: Generate Final Report
+
+```bash
+python3 scripts/generate_report.py /tmp/data.xlsx \
+  --company "公司名" --ticker "000001.SZ" \
+  --output-dir /tmp/reports \
+  --analysis-json /tmp/reports/analysis.json \
+  --news-html /tmp/reports/news.html \
+  -o html,pdf
+```
+
+### Step 6: Deliver Files via Feishu API
+
+```bash
+# Upload and send file
+FK=$(curl -s -X POST 'https://open.feishu.cn/open-apis/im/v1/files' \
   -H "Authorization: Bearer $TOKEN" \
-  -F 'file_type=stream' \
-  -F "file_name=report.html" \
-  -F "file=@/path/to/report.html")
-FILE_KEY=$(echo "$UPLOAD" | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['file_key'])")
+  -F 'file_type=stream' -F "file_name=report.html" -F "file=@/tmp/reports/report.html" \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['data']['file_key'])")
 
-# 2. Send file message to chat
 curl -s -X POST 'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id' \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d "{\"receive_id\":\"CHAT_ID\",\"msg_type\":\"file\",\"content\":\"{\\\"file_key\\\":\\\"$FILE_KEY\\\"}\"}"
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"receive_id\":\"CHAT_ID\",\"msg_type\":\"file\",\"content\":\"{\\\"file_key\\\":\\\"$FK\\\"}\"}"
 ```
+
+## CLI Reference
+
+```bash
+# JSON data export (for LLM pipeline)
+python3 scripts/generate_report.py input.xlsx --json --company NAME --ticker TICKER --output-dir DIR
+
+# Full report with LLM analysis
+python3 scripts/generate_report.py input.xlsx \
+  --analysis-json analysis.json \
+  --news-html news.html \
+  --company NAME --ticker TICKER \
+  -o html,pdf --output-dir DIR
+
+# Standalone (rule-based analysis, no LLM needed)
+python3 scripts/generate_report.py input.xlsx --company NAME --ticker TICKER -o html,pdf
+```
+
+## Output Formats
+
+| Flag | Output | Requires |
+|------|--------|----------|
+| `-o html` | HTML only | (built-in) |
+| `-o pdf` | HTML + PDF | wkhtmltopdf |
+| `-o doc` | HTML + DOCX | pandoc |
+| `-o md` | HTML + Markdown | pandoc or markdownify |
 
 ## Report Features
 
-- **Sparkline trend charts**: Each metric row has an inline SVG showing the trend (solid=actual, dashed=forecast)
-- **Forecast markers**: Predicted values marked with ⟡ symbol and yellow background
-- **Color coding**: Green=positive, Red=negative
-- **Responsive**: Works on mobile and desktop
-- **Print-ready**: CSS print styles included
-
-## Metric Definitions
-
-See [references/metrics.md](references/metrics.md) for financial metric calculations.
+- **LLM-powered analysis**: Deep, contextual financial commentary (when using --analysis-json)
+- **Company news section**: Recent hot topics and events (when using --news-html)
+- **Sparkline trend charts**: SVG mini-charts in each data row
+- **Forecast markers**: Predicted values with ⟡ symbol and yellow background
+- **PDF compatible**: No emoji/flex/gradient/CSS variables (works with wkhtmltopdf)
+- **Fallback mode**: Rule-based analysis when no LLM analysis is provided
