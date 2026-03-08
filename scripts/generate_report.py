@@ -577,6 +577,7 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
         cf_text = llm.get("cash_flow", "") or analyze_cash_flow(dates, is_forecast, ocf, icf, fcf_finance, cash_end, capex)
         ps_text = llm.get("per_share", "") or analyze_per_share(dates, is_forecast, eps, bps, asset_turnover, employees, revenue)
         industry_html = llm.get("industry", "") or generate_industry_analysis(company, revenue, net_profit_parent, gross_margin, rd, dates, is_forecast)
+        competitor_html = llm.get("competitor", "")
         risk_html = llm.get("risk", "") or generate_risk_analysis(dates, is_forecast, net_profit_parent, debt_ratio, ocf, cash_end, revenue, gross_margin)
     else:
         profit_text = analyze_profitability(dates, is_forecast, revenue, op_profit, net_profit_parent, rd, gross_margin, net_margin, roe, roa)
@@ -584,6 +585,7 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
         cf_text = analyze_cash_flow(dates, is_forecast, ocf, icf, fcf_finance, cash_end, capex)
         ps_text = analyze_per_share(dates, is_forecast, eps, bps, asset_turnover, employees, revenue)
         industry_html = generate_industry_analysis(company, revenue, net_profit_parent, gross_margin, rd, dates, is_forecast)
+        competitor_html = ""
         risk_html = generate_risk_analysis(dates, is_forecast, net_profit_parent, debt_ratio, ocf, cash_end, revenue, gross_margin)
 
     # News section
@@ -591,8 +593,18 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
     if news_html:
         news_section = f"""
 <div class="card">
-<div class="section-title">七、近期热点新闻</div>
+<div class="section-title">八、近期热点新闻</div>
 {news_html}
+</div>
+"""
+
+    # Competitor section
+    competitor_section = ""
+    if competitor_html:
+        competitor_section = f"""
+<div class="card">
+<div class="section-title">六、关键竞争对手分析</div>
+{competitor_html}
 </div>
 """
 
@@ -798,8 +810,10 @@ td:first-child, th:first-child {{ text-align:left; font-weight:600; color:#1e293
 {industry_html}
 </div>
 
+{competitor_section}
+
 <div class="card">
-<div class="section-title">六、风险与机遇分析</div>
+<div class="section-title">七、风险与机遇分析</div>
 {risk_html}
 </div>
 
