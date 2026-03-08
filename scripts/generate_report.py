@@ -395,10 +395,10 @@ def generate_risk_analysis(dates, is_forecast, net_profit, debt_ratio, ocf, cash
 
     opportunities.append(("全球化布局", "海外市场渗透率提升空间大，国际化战略持续推进。"))
 
-    html = '<div class="two-col"><div><h3>🔴 风险因素</h3><ul class="risk-list">'
+    html = '<div class="two-col"><div class="col"><h3>风险因素</h3><ul class="risk-list">'
     for title, desc in risks:
         html += f'<li><strong>{title}：</strong>{desc}</li>'
-    html += '</ul></div><div><h3>🟢 积极因素</h3><ul class="risk-list">'
+    html += '</ul></div><div class="col"><h3>积极因素</h3><ul class="risk-list">'
     for title, desc in opportunities:
         html += f'<li><strong>{title}：</strong>{desc}</li>'
     html += '</ul></div></div>'
@@ -489,6 +489,21 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
     rv_prev = to_float(revenue[prev])
     rv_yoy = f"{(rv_last/rv_prev-1)*100:.1f}%" if rv_last and rv_prev else "-"
 
+    # YoY for other summary metrics
+    np_last = to_float(net_profit_parent[latest])
+    np_prev = to_float(net_profit_parent[prev])
+    np_yoy = "-"
+    if np_last is not None and np_prev is not None and np_prev != 0:
+        np_yoy = f"{(np_last/np_prev-1)*100:.1f}%" if np_prev > 0 else f"收窄{(1-abs(np_last)/abs(np_prev))*100:.1f}%" if abs(np_last) < abs(np_prev) else f"扩大{(abs(np_last)/abs(np_prev)-1)*100:.1f}%"
+
+    gm_last = to_float(gross_margin[latest])
+    gm_prev = to_float(gross_margin[prev])
+    gm_yoy = f"{gm_last - gm_prev:+.1f}pp" if gm_last is not None and gm_prev is not None else "-"
+
+    roe_last = to_float(roe[latest])
+    roe_prev = to_float(roe[prev])
+    roe_yoy = f"{roe_last - roe_prev:+.1f}pp" if roe_last is not None and roe_prev is not None else "-"
+
     # Text analyses
     profit_text = analyze_profitability(dates, is_forecast, revenue, op_profit, net_profit_parent, rd, gross_margin, net_margin, roe, roa)
     bs_text = analyze_balance_sheet(dates, is_forecast, total_assets, total_liab, equity, current_assets, debt_ratio)
@@ -497,6 +512,9 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
     industry_html = generate_industry_analysis(company, revenue, net_profit_parent, gross_margin, rd, dates, is_forecast)
     risk_html = generate_risk_analysis(dates, is_forecast, net_profit_parent, debt_ratio, ocf, cash_end, revenue, gross_margin)
 
+
+    # wkhtmltopdf uses old WebKit: NO flex, NO CSS variables, NO gradient, NO emoji
+    # Use float/table layout, solid colors, text section numbers
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -504,84 +522,135 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{title} 财务分析报告</title>
 <style>
-:root {{ --primary:#1a56db; --danger:#dc2626; --success:#16a34a; --bg:#f8fafc; --card:#fff; --border:#e2e8f0; --text:#1e293b; --text2:#64748b; }}
+@page {{ size: A4 landscape; margin: 10mm; }}
 * {{ margin:0; padding:0; box-sizing:border-box; }}
-body {{ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }}
-.container {{ max-width:1400px; margin:0 auto; padding:20px; }}
-.header {{ background:linear-gradient(135deg,#1e3a8a,#3b82f6); color:#fff; padding:40px; border-radius:16px; margin-bottom:24px; }}
-.header h1 {{ font-size:28px; margin-bottom:8px; }}
-.header .subtitle {{ opacity:0.85; font-size:14px; }}
-.card {{ background:var(--card); border-radius:12px; padding:24px; margin-bottom:20px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }}
-.card h2 {{ font-size:18px; margin-bottom:16px; padding-bottom:8px; border-bottom:2px solid var(--primary); display:inline-block; }}
-.card h3 {{ font-size:15px; color:var(--text2); margin:16px 0 8px; }}
-.metrics-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin-bottom:20px; }}
-.metric-card {{ background:#f1f5f9; border-radius:10px; padding:16px; text-align:center; }}
-.metric-card .label {{ font-size:12px; color:var(--text2); margin-bottom:4px; }}
-.metric-card .value {{ font-size:24px; font-weight:700; }}
-.metric-card .change {{ font-size:12px; margin-top:4px; }}
-.positive {{ color:var(--success); }}
-.negative {{ color:var(--danger); }}
-table {{ width:100%; border-collapse:collapse; font-size:13px; overflow-x:auto; display:block; }}
-th, td {{ padding:8px 10px; text-align:right; white-space:nowrap; border-bottom:1px solid var(--border); }}
-th {{ background:#f1f5f9; font-weight:600; position:sticky; top:0; }}
-td:first-child, th:first-child {{ text-align:left; font-weight:500; position:sticky; left:0; background:#fff; z-index:1; min-width:180px; }}
-th:first-child {{ background:#f1f5f9; z-index:2; }}
-tr:hover td {{ background:#f8fafc; }}
-.forecast {{ background:#fffbeb !important; }}
-.forecast-val {{ font-style:italic; color:#92400e; }}
-.forecast-dot {{ color:#f59e0b; font-size:10px; vertical-align:super; cursor:help; }}
-.analysis-box {{ background:#f8fafc; border-left:3px solid var(--primary); padding:14px 18px; border-radius:0 8px 8px 0; margin:16px 0; font-size:14px; line-height:1.8; color:#334155; }}
-.summary-box {{ background:linear-gradient(135deg,#eff6ff,#dbeafe); border-left:4px solid var(--primary); padding:16px 20px; border-radius:0 8px 8px 0; margin:16px 0; }}
-.legend {{ display:flex; gap:16px; align-items:center; font-size:12px; color:var(--text2); margin:8px 0 16px; flex-wrap:wrap; }}
-.legend-item {{ display:flex; align-items:center; gap:4px; }}
-.legend-swatch {{ width:20px; height:2px; display:inline-block; }}
-.legend-swatch.solid {{ background:#16a34a; }}
-.legend-swatch.dashed {{ background:repeating-linear-gradient(90deg,#f59e0b 0,#f59e0b 4px,transparent 4px,transparent 6px); }}
-.two-col {{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }}
-.risk-list {{ padding-left:20px; line-height:2; }}
-.risk-list li {{ margin-bottom:4px; }}
-@media (max-width:768px) {{ .two-col {{ grid-template-columns:1fr; }} .container {{ padding:10px; }} }}
-@media print {{ body {{ background:#fff; }} .card {{ box-shadow:none; border:1px solid #ddd; page-break-inside:avoid; }} }}
+body {{
+    font-family: "PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+    background: #eef1f5; color: #1a202c; line-height:1.7; font-size:14px;
+}}
+.container {{ max-width:1200px; margin:0 auto; padding:20px; }}
+
+/* Header - solid dark bg for PDF */
+.header {{
+    background: #0f2557; color:#fff; padding:30px 36px; border-radius:10px; margin-bottom:24px;
+}}
+.header h1 {{ font-size:26px; font-weight:800; letter-spacing:0.5px; margin-bottom:4px; }}
+.header .ticker {{ font-weight:400; font-size:18px; opacity:0.8; }}
+.header .subtitle {{ opacity:0.65; font-size:12px; letter-spacing:1px; margin-top:4px; }}
+
+/* Cards */
+.card {{
+    background:#fff; border-radius:8px; padding:24px 28px; margin-bottom:18px;
+    border: 1px solid #dce3eb;
+}}
+.section-title {{
+    font-size:16px; font-weight:700; color:#0f2557; margin-bottom:16px;
+    padding-bottom:8px; border-bottom:3px solid #2563eb; display:inline-block;
+}}
+.card h3 {{ font-size:13px; color:#64748b; margin:18px 0 8px; font-weight:600; }}
+
+/* Metric Cards - float layout for PDF */
+.metrics-row {{ overflow:hidden; margin-bottom:12px; }}
+.metric-card {{
+    float:left; width:23.5%; margin-right:2%;
+    background: #f4f7fb; border-radius:8px; padding:16px 14px; text-align:center;
+    border:1px solid #dce3eb;
+}}
+.metric-card:last-child {{ margin-right:0; }}
+.metric-card .label {{ font-size:11px; color:#64748b; margin-bottom:5px; }}
+.metric-card .value {{ font-size:24px; font-weight:800; color:#0f2557; }}
+.metric-card .change {{ font-size:11px; margin-top:5px; font-weight:600; }}
+.metric-card.accent {{ background:#e8f0fe; border-color:#a3c4f3; }}
+
+/* Tables */
+table {{ width:100%; border-collapse:collapse; font-size:12px; }}
+th, td {{ padding:7px 10px; text-align:right; white-space:nowrap; }}
+th {{
+    background:#f1f5f9; font-weight:700; font-size:11px; color:#475569;
+    letter-spacing:0.3px; border-bottom:2px solid #cbd5e1;
+}}
+td {{ border-bottom:1px solid #eef1f5; }}
+td:first-child, th:first-child {{ text-align:left; font-weight:600; color:#1e293b; }}
+.positive {{ color:#059669; font-weight:600; }}
+.negative {{ color:#dc2626; font-weight:600; }}
+
+/* Forecast */
+.forecast {{ background:#fefce8 !important; }}
+.forecast-val {{ font-style:italic; color:#92400e; font-weight:500; }}
+.forecast-dot {{ color:#d97706; font-size:9px; vertical-align:super; }}
+
+/* Analysis Box */
+.analysis-box {{
+    background: #f6f8fb; border-left:4px solid #2563eb;
+    padding:14px 18px; border-radius:0 8px 8px 0;
+    margin:18px 0 4px; font-size:13px; line-height:1.9; color:#334155;
+}}
+.analysis-box strong {{ color:#0f2557; }}
+
+/* Two columns - float */
+.two-col {{ overflow:hidden; }}
+.two-col .col {{ float:left; width:48%; }}
+.two-col .col:first-child {{ margin-right:4%; }}
+.risk-list {{ padding-left:18px; line-height:2; font-size:12.5px; }}
+.risk-list li {{ margin-bottom:5px; color:#475569; }}
+.risk-list li strong {{ color:#1e293b; }}
+
+/* Footer */
+.footer {{
+    text-align:center; color:#94a3b8; font-size:11px; padding:20px 0 8px;
+    border-top:1px solid #dce3eb; margin-top:6px;
+}}
+.clearfix {{ clear:both; }}
+
+@media print {{
+    body {{ background:#fff; font-size:11px; }}
+    .container {{ padding:0; max-width:100%; }}
+    .header {{ border-radius:0; padding:18px 22px; }}
+    .card {{ border-radius:4px; padding:14px 16px; margin-bottom:12px; }}
+    .analysis-box {{ page-break-inside:avoid; }}
+    table {{ font-size:10px; }}
+    th, td {{ padding:4px 6px; }}
+    .metric-card .value {{ font-size:18px; }}
+}}
 </style>
 </head>
 <body>
 <div class="container">
+
 <div class="header">
-<h1>📊 {title}</h1>
-<div class="subtitle">财务分析报告 | 单位：亿元(CNY)</div>
+<h1>{company} <span class="ticker">{ticker}</span></h1>
+<div class="subtitle">FINANCIAL ANALYSIS REPORT | 财务分析报告 | 单位：亿元 (CNY)</div>
 </div>
 
 <div class="card">
-<h2>📋 核心摘要（{dates[latest]}年实际数据）</h2>
-<div class="metrics-grid">
-<div class="metric-card">
-<div class="label">{dates[latest]}年营收</div>
+<div class="section-title">核心摘要 — {dates[latest]}年实际数据</div>
+<div class="metrics-row">
+<div class="metric-card accent">
+<div class="label">营业收入</div>
 <div class="value">{fmt(revenue[latest])}</div>
 <div class="change">同比 {rv_yoy}</div>
 </div>
 <div class="metric-card">
-<div class="label">{dates[latest]}年归母净利润</div>
+<div class="label">归母净利润</div>
 <div class="value">{fmt(net_profit_parent[latest])}</div>
+<div class="change">{np_yoy}</div>
 </div>
 <div class="metric-card">
-<div class="label">{dates[latest]}年毛利率</div>
+<div class="label">毛利率</div>
 <div class="value">{fmt_pct(gross_margin[latest])}</div>
+<div class="change">{gm_yoy}</div>
 </div>
 <div class="metric-card">
-<div class="label">{dates[latest]}年ROE</div>
+<div class="label">ROE</div>
 <div class="value">{fmt_pct(roe[latest])}</div>
+<div class="change">{roe_yoy}</div>
 </div>
 </div>
-<div class="legend">
-<div class="legend-item"><div class="legend-swatch solid"></div> 实际值趋势</div>
-<div class="legend-item"><div class="legend-swatch dashed"></div> 预测值趋势</div>
-<div class="legend-item"><span class="forecast-val">斜体</span> 预测数值</div>
-<div class="legend-item"><span class="forecast-dot">⟡</span> 预测标记</div>
-</div>
+<div class="clearfix"></div>
 </div>
 
 <div class="card">
-<h2>📈 一、盈利能力分析</h2>
+<div class="section-title">一、盈利能力分析</div>
 <table>
 {table_header()}
 {table_row("营业总收入", revenue)}
@@ -590,7 +659,7 @@ tr:hover td {{ background:#f8fafc; }}
 {table_row("研发支出", rd)}
 {table_row("EBITDA", ebitda)}
 </table>
-<h3 style="margin:16px 0 8px;">利润率指标</h3>
+<h3>利润率指标</h3>
 <table>
 {table_header()}
 {table_row("毛利率", gross_margin, True)}
@@ -602,7 +671,7 @@ tr:hover td {{ background:#f8fafc; }}
 </div>
 
 <div class="card">
-<h2>🏦 二、资产负债分析</h2>
+<div class="section-title">二、资产负债分析</div>
 <table>
 {table_header()}
 {table_row("总资产", total_assets)}
@@ -615,7 +684,7 @@ tr:hover td {{ background:#f8fafc; }}
 </div>
 
 <div class="card">
-<h2>💰 三、现金流分析</h2>
+<div class="section-title">三、现金流分析</div>
 <table>
 {table_header()}
 {table_row("经营活动现金流", ocf)}
@@ -629,7 +698,7 @@ tr:hover td {{ background:#f8fafc; }}
 </div>
 
 <div class="card">
-<h2>📊 四、每股指标与效率</h2>
+<div class="section-title">四、每股指标与效率</div>
 <table>
 {table_header()}
 {table_row("EPS(元)", eps)}
@@ -641,18 +710,19 @@ tr:hover td {{ background:#f8fafc; }}
 </div>
 
 <div class="card">
-<h2>🏭 五、行业分析</h2>
+<div class="section-title">五、行业分析</div>
 {industry_html}
 </div>
 
 <div class="card">
-<h2>⚠️ 六、风险与机遇分析</h2>
+<div class="section-title">六、风险与机遇分析</div>
 {risk_html}
 </div>
 
-<div style="text-align:center;color:var(--text2);font-size:12px;padding:20px;">
-📅 数据来源：公司财务报告 | 仅供参考，不构成投资建议
+<div class="footer">
+数据来源：公司财务报告 | 仅供参考，不构成投资建议
 </div>
+
 </div>
 </body>
 </html>"""
@@ -661,7 +731,13 @@ tr:hover td {{ background:#f8fafc; }}
 
 def html_to_pdf(html_path, pdf_path):
     for cmd in [
-        ["wkhtmltopdf", "--quiet", "--enable-local-file-access", "--page-size", "A4", "--orientation", "Landscape", html_path, pdf_path],
+        ["wkhtmltopdf", "--quiet", "--enable-local-file-access",
+         "--page-size", "A4", "--orientation", "Landscape",
+         "--margin-top", "8mm", "--margin-bottom", "8mm",
+         "--margin-left", "10mm", "--margin-right", "10mm",
+         "--encoding", "UTF-8", "--no-outline",
+         "--print-media-type",
+         html_path, pdf_path],
     ]:
         try:
             subprocess.run(cmd, check=True, capture_output=True)
