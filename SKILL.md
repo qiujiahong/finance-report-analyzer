@@ -81,7 +81,10 @@ Based on the JSON data from Step 2 and search results from Step 3, write profess
   "per_share": "HTML text - EPS/BPS trends, efficiency ratios, workforce...",
   "industry": "HTML text wrapped in <div class=\"analysis-box\">...",
   "competitor": "HTML text - competitor table + strategic analysis (see format below)",
-  "risk": "HTML text using <div class=\"two-col\"><div class=\"col\">... layout"
+  "risk": "...",
+  "growth": "增长动力分析 HTML...",
+  "rd_analysis": "研发效率分析 HTML...",
+  "dupont": "杜邦分析(ROE拆解) HTML..."
 }
 ```
 

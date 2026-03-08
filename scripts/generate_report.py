@@ -463,6 +463,50 @@ def export_data_json(rows, header_row, indices, report_types, company="", ticker
             "employees": series(["员工总数"]),
         },
     }
+
+    # Computed metrics for richer analysis
+    rev_vals = [to_float(get(["营业总收入", "营业收入"])[i]) for i in range(len(dates))]
+    rd_vals = [to_float(get(["研发支出", "研发费用"])[i]) for i in range(len(dates))]
+    np_vals = [to_float(get(["归属母公司股东的净利润", "归母净利润"])[i]) for i in range(len(dates))]
+    ta_vals = [to_float(get(["资产总计", "总资产"])[i]) for i in range(len(dates))]
+    eq_vals = [to_float(get(["归属母公司股东的权益", "股东权益"])[i]) for i in range(len(dates))]
+    at_vals = [to_float(get(["资产周转率"])[i]) for i in range(len(dates))]
+    emp_vals = [to_float(get(["员工总数"])[i]) for i in range(len(dates))]
+
+    # R&D intensity (R&D / Revenue)
+    rd_intensity = {}
+    for i, yr in enumerate(dates):
+        if rev_vals[i] and rd_vals[i] and rev_vals[i] != 0:
+            rd_intensity[yr] = round(rd_vals[i] / rev_vals[i] * 100, 2)
+
+    # Revenue per employee
+    rev_per_emp = {}
+    for i, yr in enumerate(dates):
+        if rev_vals[i] and emp_vals[i] and emp_vals[i] != 0:
+            rev_per_emp[yr] = round(rev_vals[i] / emp_vals[i] * 10000, 2)  # 万元/人
+
+    # YoY growth rates
+    rev_growth = {}
+    for i in range(1, len(dates)):
+        if rev_vals[i] and rev_vals[i-1] and rev_vals[i-1] != 0:
+            rev_growth[dates[i]] = round((rev_vals[i] / rev_vals[i-1] - 1) * 100, 2)
+
+    # DuPont decomposition: ROE = Net Margin × Asset Turnover × Equity Multiplier
+    dupont = {}
+    for i, yr in enumerate(dates):
+        if np_vals[i] is not None and rev_vals[i] and ta_vals[i] and eq_vals[i] and eq_vals[i] != 0 and rev_vals[i] != 0:
+            net_margin_d = round(np_vals[i] / rev_vals[i] * 100, 2)
+            turnover_d = at_vals[i] if at_vals[i] else (round(rev_vals[i] / ta_vals[i], 4) if ta_vals[i] else None)
+            leverage_d = round(ta_vals[i] / eq_vals[i], 2)
+            dupont[yr] = {"net_margin": net_margin_d, "asset_turnover": turnover_d, "equity_multiplier": leverage_d}
+
+    data["computed"] = {
+        "rd_intensity_pct": rd_intensity,
+        "revenue_per_employee_wan": rev_per_emp,
+        "revenue_yoy_growth_pct": rev_growth,
+        "dupont": dupont,
+    }
+
     return _json.dumps(data, ensure_ascii=False, indent=2)
 
 
@@ -507,6 +551,34 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
     for o, c in zip(ocf, capex):
         o_f, c_f = to_float(o), to_float(c)
         fcf.append(o_f - c_f if o_f is not None and c_f is not None else None)
+
+    # Computed metrics
+    rd_intensity = []
+    rev_growth = []
+    rev_per_emp = []
+    np_per_emp = []
+    equity_multiplier = []
+    for i in range(len(indices)):
+        r_f = to_float(revenue[i])
+        rd_f = to_float(rd[i])
+        np_f = to_float(net_profit_parent[i])
+        emp_f = to_float(employees[i])
+        ta_f = to_float(total_assets[i])
+        eq_f = to_float(equity[i])
+        # R&D intensity %
+        rd_intensity.append(rd_f / r_f * 100 if r_f and rd_f else None)
+        # Revenue YoY growth %
+        if i > 0:
+            r_prev = to_float(revenue[i-1])
+            rev_growth.append((r_f / r_prev - 1) * 100 if r_f and r_prev and r_prev != 0 else None)
+        else:
+            rev_growth.append(None)
+        # Revenue per employee (万元)
+        rev_per_emp.append(r_f / emp_f * 10000 if r_f and emp_f else None)
+        # Net profit per employee (万元)
+        np_per_emp.append(np_f / emp_f * 10000 if np_f is not None and emp_f else None)
+        # Equity multiplier
+        equity_multiplier.append(ta_f / eq_f if ta_f and eq_f and eq_f != 0 else None)
 
     title = f"{company} [{ticker}]" if ticker else company or "财务分析报告"
 
@@ -579,6 +651,9 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
         industry_html = llm.get("industry", "") or generate_industry_analysis(company, revenue, net_profit_parent, gross_margin, rd, dates, is_forecast)
         competitor_html = llm.get("competitor", "")
         risk_html = llm.get("risk", "") or generate_risk_analysis(dates, is_forecast, net_profit_parent, debt_ratio, ocf, cash_end, revenue, gross_margin)
+        growth_text = llm.get("growth", "")
+        rd_text = llm.get("rd_analysis", "")
+        dupont_text = llm.get("dupont", "")
     else:
         profit_text = analyze_profitability(dates, is_forecast, revenue, op_profit, net_profit_parent, rd, gross_margin, net_margin, roe, roa)
         bs_text = analyze_balance_sheet(dates, is_forecast, total_assets, total_liab, equity, current_assets, debt_ratio)
@@ -587,13 +662,16 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
         industry_html = generate_industry_analysis(company, revenue, net_profit_parent, gross_margin, rd, dates, is_forecast)
         competitor_html = ""
         risk_html = generate_risk_analysis(dates, is_forecast, net_profit_parent, debt_ratio, ocf, cash_end, revenue, gross_margin)
+        growth_text = ""
+        rd_text = ""
+        dupont_text = ""
 
     # News section
     news_section = ""
     if news_html:
         news_section = f"""
 <div class="card">
-<div class="section-title">八、近期热点新闻</div>
+<div class="section-title">九、近期热点新闻</div>
 {news_html}
 </div>
 """
@@ -603,8 +681,34 @@ def generate_html(rows, header_row, indices, report_types, company="", ticker=""
     if competitor_html:
         competitor_section = f"""
 <div class="card">
-<div class="section-title">六、关键竞争对手分析</div>
+<div class="section-title">七、关键竞争对手分析</div>
 {competitor_html}
+</div>
+"""
+
+    # Growth & R&D & DuPont sections
+    growth_section = f"""
+<div class="card">
+<div class="section-title">五-B、增长动力与研发效率</div>
+<h3>增长指标</h3>
+<table>
+{table_header()}
+{table_row("营收同比增速", rev_growth, True)}
+{table_row("研发强度(研发/营收)", rd_intensity, True)}
+{table_row("人均营收(万元)", rev_per_emp)}
+{table_row("人均净利润(万元)", np_per_emp)}
+</table>
+{'<div class="analysis-box">' + growth_text + '</div>' if growth_text else ''}
+<h3>杜邦分析（ROE拆解）</h3>
+<table>
+{table_header()}
+{table_row("净利率", net_margin, True)}
+{table_row("资产周转率(倍)", asset_turnover)}
+{table_row("权益乘数(倍)", equity_multiplier)}
+{table_row("ROE(摊薄)", roe, True)}
+</table>
+{'<div class="analysis-box">' + dupont_text + '</div>' if dupont_text else ''}
+{'<div class="analysis-box">' + rd_text + '</div>' if rd_text else ''}
 </div>
 """
 
@@ -810,10 +914,12 @@ td:first-child, th:first-child {{ text-align:left; font-weight:600; color:#1e293
 {industry_html}
 </div>
 
+{growth_section}
+
 {competitor_section}
 
 <div class="card">
-<div class="section-title">七、风险与机遇分析</div>
+<div class="section-title">八、风险与机遇分析</div>
 {risk_html}
 </div>
 
